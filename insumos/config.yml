@@ -8,26 +8,35 @@ datos: #
   margen : 'Margen.xlsx'
   precios : 'Precios_exito.xlsx'
 
+
+columnas_fechas:
+  - Mes
+
+filtros:
+  negocio: ['Otros Oper Cciales']
+
+balanced_score_fill:
+  borrar_na: ['negocio']
+  filla_na_0: ['venta_cop','venta_un']
+
 balanced_score_columnas:
-    Mes : [int,'mes']  
-    Región : [str, region]
+    Mes : [str,'mes'] 
+    EAN : [str,EAN]
+    Codigo SAP : [str,'cod_material']
+    Nombre Producto : [str,nombre_material]
+    PLU : [str,PLU]    
     Negocio : [str,'negocio']
+    Categoria : [str,'categoria']
+    Sub Categoria : [str,'sub_categoria']
     Marca : [str,'marca']
-    Producto: [str,'producto']
-    Código SAP (Producto) : [str,'codigo_sap']
-    Peso: [float,'peso']
-    Venta ($) Anterior: [float64,'venta_cop_año_ant']
-    Venta ($) Actual: [float64,'venta_cop_año_act']
-    Venta (Un.) Anterior : [float64,'venta_un_ant']
-    Venta (Un.) Actual : [float64,'venta_un_act']
-
-
+    Ventas COP: [float64,'venta_cop']
+    Ventas UN : [float64,'venta_un']
 
 config_margen:
   margen_sector: # hoja y columnas de margen por sector
     cod_negocio: str
     negocio: str
-    marge_real: float64
+    marge_real_negocio: float64
     margen_ppto: float64
   margen_marca:  # hoja y columnas de margen por marca
     cod_marca: str
@@ -40,10 +49,12 @@ config_margen:
     margen_real: float64
     margen_ppto: float64
   
-ajustes_balanced_scored:  
-  - borrar_na: ['region', 'negocio']   
-  - filla_na_0: ['venta_cop_año_ant','venta_un_ant']
-  - filtros: {'negocio': 'Otros Oper Cciales'}
-  
+agrupaciones:
+  agrupa_a : 
+    var_numericas:
+      - venta_cop
+    var_categoricas:
+      - mes_agrupado
+      - negocio
 
 

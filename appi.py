@@ -1,28 +1,14 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import io
 from scripts.utils import cargar_config
-from scripts.utils import dfarchivoAFO
-from scripts.utils import create_grupped_df 
-from scripts.utils import creacion_graficos 
+from scripts.utils import create_grupped_df
+from scripts.utils import valores_atipicos
+from scripts.utils import calculo_variaciones
+from scripts.utils import creacion_graficos
 from scripts.utils import agrupaciones_calculos
+from scripts.utils import cargar_datos
 
-config = cargar_config()
-
-def cargar_datos_margen(ruta_margen):
-    '''
-        Función que carga las diferentes hojas de la consulta AFO con los margenes.
-    '''
-    lista_hojas = []
-    for hojas in config['config_margen'].keys():
-        lista_hojas.append(hojas)
-        print(ruta_margen)
-    margen_sector = dfarchivoAFO(ruta_margen,lista_hojas[0],config['config_margen'][lista_hojas[0]])
-    margen_marca = dfarchivoAFO(ruta_margen,lista_hojas[1],config['config_margen'][lista_hojas[1]])
-    margen_material = dfarchivoAFO(ruta_margen,lista_hojas[2],config['config_margen'][lista_hojas[2]])
-    return margen_sector, margen_marca, margen_material
-
+config = cargar_config() # archivo de configuración
 
 def configurar_pagina():
     """Configura el estilo y apariencia de la página"""
@@ -89,13 +75,12 @@ def inicializar_estado():
         st.session_state.balance_cargado = False
     if 'margen_cargado' not in st.session_state:
         st.session_state.margen_cargado = False
-    #if 'df1' not in st.session_state:
-    #    st.session_state.df1 = None
-    #if 'df2' not in st.session_state:
-    #    st.session_state.df2 = None
+
 
 def sidebar_carga_archivos():
-    """Maneja la carga de archivos en el sidebar"""
+    """
+        condifigura y Maneja la carga de archivos en el sidebar
+    """
     with st.sidebar:
         st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
         st.markdown("### Carga de Archivos")
@@ -116,13 +101,12 @@ def sidebar_carga_archivos():
         else:
             st.warning("⚠️ El balanced_score aún no ha sido cargado")
         
-        # margen
+        # Carga arhcivo margen.
         st.markdown("#### Margen")
         archivo_margen = st.file_uploader("Seleccione el segundo archivo Excel", type=["xlsx", "xls"], key="Margen")
         
         if archivo_margen is not None:
-            try:
-                #df2 = pd.read_excel(archivo2)
+            try:          
                 st.session_state.df_margen = archivo_margen
                 st.session_state.margen_cargado = True
                 st.success(f"✅ Margen cargado exitosamente: {archivo_margen.name}")
@@ -145,7 +129,17 @@ def sidebar_carga_archivos():
         st.markdown('</div>', unsafe_allow_html=True)
 
 def contenido_principal():
-    """Gestiona el contenido principal de la aplicación"""
+    """
+        Gestiona el contenido principal de la aplicación
+        Al principio muestra un ejemplo de que variables debe tener el archivo de ventas.
+    
+    """
+
+    # Si ya estamos en la vista de análisis por producto, mostrar solo esa sección
+    if 'vista_actual' in st.session_state and st.session_state.vista_actual == 'analisis_producto':
+        st.success("¡AHORA PUEDES FILTRAR LAS MARCAS PARA REVISAR LOS MATERIALES POR MARCA!")
+        seleccionar_marcas_para_analisis()
+        return  # Salir de la función para no mostrar nada más
     
     st.markdown('<div class="title">ANÁLISIS DESCRIPTIVO BALANCE SCORE</div>', unsafe_allow_html=True)
     
@@ -219,11 +213,20 @@ def contenido_principal():
     # Acción al presionar el botón
     if boton_continuar:
         st.success("¡Ambos archivos están cargados! Presione 'CONTINUAR' para avanzar con el análisis.")
-        mostrar_vista_analisis()      
-    # Mostrar información cuando se presione el botón continuar
+        mostrar_vista_analisis() # analisis general de las ventas.  
+        # Mostrar información cuando se presione el botón continuar
 
 def mostrar_vista_analisis():
     """Vista principal para mostrar resumen y gráficos tras cargar los archivos"""
+
+    # Inicializar variable de estado si no existe
+    if 'vista_actual' not in st.session_state:
+        st.session_state.vista_actual = 'general'
+    
+    if st.session_state.vista_actual == 'analisis_producto':
+        st.success("¡AHORA PUEDES FILTRAR LAS MARCAS PARA REVISAR LOS MATERIALES POR MARCA.")
+        seleccionar_marcas_para_analisis()
+        return  # Salir de la función para no mostrar el análisis general
 
     st.title("Vista de Análisis de Datos")
 
@@ -236,101 +239,274 @@ def mostrar_vista_analisis():
         # Leer y procesar los archivos
         col_usar = config['balanced_score_columnas'].keys()
         tipado_col = {nomcol: tipo[0]  for nomcol, tipo in config['balanced_score_columnas'].items()}
+
+        columnas_fecha = config['columnas_fechas'][0]       
+       
         nombre_col = [tipo[1] for tipo in config['balanced_score_columnas'].values()]
-        balance = pd.read_excel(df_balance,usecols=col_usar,dtype=tipado_col)
-        balance.columns = nombre_col
-        mg_sector,mg_marca,mg_material = cargar_datos_margen(df_margen)
-        #df2 = pd.read_excel(archivo2)
+        balance = cargar_datos(df_balance,margen=False, 
+                               col_usar = col_usar,
+                               tipado_col=tipado_col,
+                               parse = columnas_fecha,
+                               nom_columnas = nombre_col)      
+      
+        if isinstance(balance, str):
+             st.info(balance)
+        
+        # realizando transformacion para el poner el nombre de los meses        
+        mg_sector,mg_marca,mg_material = cargar_datos(df_margen,margen=True)
 
-        # 👉 Aquí puedes aplicar tus modificaciones a df1 y df2
-        # Por ejemplo:
-        balance = balance.dropna(subset=["region", "negocio"])
-        balance = balance[balance["negocio"] != "Otros Oper Cciales"]
+        
+        #Guardando en la session state los dataframes
+        st.session_state.df2_balance = balance
+        st.session_state.df_margen = mg_sector
+        st.session_state.mg_marca = mg_marca
+        st.session_state.mg_material = mg_material
 
-        columnas_ventas = ["venta_cop_año_ant", "venta_cop_año_act", "venta_un_ant", "venta_un_act"]
-        for col in columnas_ventas:
-            if col in balance.columns:
-                balance[col] = balance[col].fillna(0)
 
-        # Guardarlos en session_state para otras funciones si es necesario
-        # st.session_state["df_balance1"] = balance
-        # st.session_state["df_margen_negocio"] = mg_sector
-        # st.session_state["df_margen_marca"] = mg_marca
-        # st.session_state["df_margen_material"] = mg_material
-
+        # realiazando limpiza del data frame balance
+        #try:
+        filtros = config['filtros']
+        for key,value in  filtros.items(): ## ciclo para filtrar valores segun la parametrizacion en el archivo de config
+            for valor in value:
+                balance = balance[balance[key] != valor]
+        
+        valores_nulos = config['balanced_score_fill']
+        for key,value in valores_nulos.items(): # ciclo para completar informacion nula con 0
+            if key == 'borrar_na':
+                    for columna in value:
+                        balance = balance.dropna(subset=[columna])
+            else:
+                    for columna in value:
+                        balance[columna] = balance[columna].fillna(0)
+        #except:
+        #   st.warning("No se ha filtrado ningún tipo de información!")
+     
         # agrupando variables de mes y negocio y sumando las ventas
-        df_mes_negocio = create_grupped_df(balance, ['mes','negocio'],['venta_cop_año_ant'])
+        #try:
+        variables = config['agrupaciones']['agrupa_a']
 
-
-
-        graph_linea = creacion_graficos(df_mes_negocio, x_label='mes', y_label='venta_cop_año_ant', heu='negocio',
-                               titulo = 'Tendencia de Ventas por Negocio y Mes' )
+        balance['mes_agrupado'] = balance['mes'].dt.to_period('M').dt.to_timestamp()
+        df_mes_negocio = create_grupped_df(balance, variables['var_categoricas'],variables['var_numericas'] )
+        graph_linea = creacion_graficos(df_mes_negocio, x_label='mes_agrupado', y_label='venta_cop', heu='negocio',
+        titulo = 'Tendencia de Ventas por Negocio y Mes' )
         ## Grafico de lineas de ventas por negocio
         fig = graph_linea.create_line_chart()
         st.markdown('''###''')
-        st.write('Grafico de linea para conocer comportamiento')
+        st.write('Gráfico de lineas para conocer series de tiempo por negocio')
         st.plotly_chart(fig, use_container_width=True)
-
+    
+       # except:
+       #    st.warning("No encontró columnas para agrupacion!!")
 
         ## Grafico de barras de margen por negocio
-        mg_sector['marge_real_label'] = mg_sector['marge_real'].round(2) # redondeando los margenes
+        mg_sector['marge_real_label'] = mg_sector['marge_real_negocio'].round(2) # redondeando los margenes
         graph_bar = creacion_graficos(mg_sector, x_label='negocio', y_label='marge_real_label', heu='negocio',
-                               titulo = 'Margen por Negocio' )
+                               titulo = 'Margen año actual por Negocio' )
         fig = graph_bar.create_bar_chart()
         st.markdown('''###''')
-        st.write('Grafico de barra para el margen por negocio')
+        st.write('Grafico de barra para el margen año actual por negocio')
         st.plotly_chart(fig, use_container_width=True)
 
 
         # Actualiza el estado si hay cambios
         var_agrupar = 'negocio'
-        var_calculo = 'venta_cop_año_ant'
-            
+        var_calculo = 'venta_cop'
+        # funcion que agrupa por "negocio"
         df_negocio = create_grupped_df(balance,['mes',var_agrupar],var_num=var_calculo)
+        
+        # funcion para completar meses
+     
         agrupaciones = agrupaciones_calculos(df_negocio)  # instancia de objeto para agrupar.
         st.markdown(f"Resultado **{var_agrupar}** con total de **{var_calculo}**")
-        resultado = agrupaciones.tabla_metricas(var_agrupar, var_calculo)           
+        resultado = agrupaciones.tabla_metricas(var_agrupar, var_calculo)  
+          
         resultado = agrupaciones.combinar_tablas(mg_sector[[var_agrupar,'marge_real_label']],union= [var_agrupar])                
+        
+        resultado['total'] = resultado['total'].apply(
+        lambda x: agrupaciones.transformaciones(x) )
+       
+        resultado['media'] = resultado['media'].apply(
+        lambda x: agrupaciones.transformaciones(x,mmill=False))
+       
+        resultado['desviacion'] = resultado['desviacion'].apply(
+        lambda x: agrupaciones.transformaciones(x, mmill=False))
+
+        resultado['mediana'] = resultado['mediana'].apply(
+        lambda x: agrupaciones.transformaciones(x,mmill=False))
+
+        resultado['minimo'] = resultado['minimo'].apply(
+        lambda x: agrupaciones.transformaciones(x) )
+
+        resultado['maximo'] = resultado['maximo'].apply(
+        lambda x: agrupaciones.transformaciones(x))       
+                
         resultado.sort_values(by='total', ascending=False)
+        resultado.set_index("negocio",inplace=True)               
         st.dataframe(resultado, use_container_width=True)
   
-
-
         ## analisis por  marca
 
         variables_a_agrupar= ['marca'] # variables a agrupar
-        variables_numericas ={'venta_cop_año_ant':'sum', 'codigo_sap': pd.Series.nunique}
-        
-        ventas_por_marca_sorted = create_grupped_df(balance,variables_a_agrupar,variables_numericas,agrupa=False,sort_values='venta_cop_año_ant').reset_index()
+        variables_numericas ={'venta_cop':'sum', 'venta_un':'sum','cod_material': pd.Series.nunique} # agrupa por suma ventas para tabla
+        variables_numericas_grafico ={'venta_cop':'mean'} # agrupa por promedio de ventas
 
-
-        graph_bar_marca = creacion_graficos(ventas_por_marca_sorted, x_label='venta_cop_año_ant', y_label='marca',
-                                             heu='marca',
-                               titulo = 'Ventas por Marca - Año Anterior')
+        ventas_por_marca_sorted = create_grupped_df(balance,variables_a_agrupar,variables_numericas,agrupa=False,sort_values='venta_cop').reset_index()
         
+        ventas_por_marca_sorted_grafico = create_grupped_df(ventas_por_marca_sorted,variables_a_agrupar,variables_numericas_grafico,agrupa=False,sort_values='venta_cop').reset_index()
+        del ventas_por_marca_sorted_grafico['index']
+        
+        variables_a_agrupar_variacion = ['marca','mes'] # SE UTILIZARA MAS ADELANTE
+        variables_numericas_ventas = {'venta_cop':'sum','venta_un':'sum'} # SE UTILIZARA MAS ADELANTE
+        #variables_numericas_ventas_UN = {'venta_un':'sum','venta_cop':'sum'}
+                             
+        ventas_marca_agrup_promedio = create_grupped_df(balance,variables_a_agrupar_variacion,variables_numericas_ventas,agrupa=False,sort_values='venta_cop').reset_index()
+        
+        ventas_promedio  = create_grupped_df(ventas_marca_agrup_promedio,'marca',{'venta_cop':'mean','venta_un':'mean'},agrupa=False,sort_values='venta_cop').reset_index()
+        del ventas_promedio['index']
+        graph_bar_marca = creacion_graficos(ventas_promedio, x_label='venta_cop', y_label='marca',
+                                            heu='marca',
+                                            titulo = 'Ventas promedio Marca')
         fig_marca = graph_bar_marca.create_bar_chart()
         st.markdown('''###''')
-        st.write('Grafico de barra para el margen por negocio')
+        st.write('Gráfico de barra ventas promedio por marca')
         st.plotly_chart(fig_marca, use_container_width=True)
         
-        #ventas_por_sector_sorted = pd.merge(ventas_por_sector_sorted,margen_sector[['negocio','marge_real_label']], on = 'negocio', how='left')
-        #ventas_por_sector_sorted.sort_values(by='total_ventas', ascending=False)
+        ## linea para conocer cuales son los margenes por marca, adicionalmente, 
+        ## utiliza una funcion para exlcuir posibles valores atipicos, muestra al
+        # usuario cuales fueron las marcas que no se tendran en cuenta
+        st.subheader("Resumen analisis por marca:")
+        marcas_inciales = set(mg_marca['marca'])
+        marge_bruto_ajus_marcas = valores_atipicos(mg_marca,'margen_real')
+        marcas_resultantes = set(marge_bruto_ajus_marcas['marca'])
+
+        #ventas_por_marca_sorted['ventas_acumuladas'] = round(ventas_por_marca_sorted['venta_cop_año_ant'].cumsum())
+        total_ventas = round(ventas_por_marca_sorted['venta_cop'].sum())
+        ventas_por_marca_sorted['venta_cop'] = ventas_por_marca_sorted['venta_cop'].round().astype(float)      
+
+        ventas_por_marca_sorted = pd.merge(ventas_por_marca_sorted,mg_marca[['marca','margen_real']], on = 'marca', how='left')
+       
+        ## agrupaciones variaciones...
+        
+        df_variaciones = calculo_variaciones(ventas_marca_agrup_promedio,col_valor = 'venta_cop'
+                                             ,col_grupo='marca', col_fecha= 'mes')
+        
+        ventas_promedio.columns = ['marca','prom_venta_cop','prom_venta_un']
+        ventas_por_marca_sorted = pd.merge(ventas_por_marca_sorted,df_variaciones, on = 'marca', how='left').merge(
+                            ventas_promedio, on='marca', how = 'left')
+               
+        ventas_por_marca_sorted['margen_real'] = (ventas_por_marca_sorted['margen_real']/100).round(3)        
+        ventas_por_marca_sorted['%_ventas'] = (ventas_por_marca_sorted['venta_cop']) / total_ventas
+        del ventas_por_marca_sorted['index']
+        ventas_por_marca_sorted = ventas_por_marca_sorted.sort_values(by='venta_cop', ascending=False)
+        ventas_por_marca_sorted = ventas_por_marca_sorted.rename(columns={'venta_cop': 'ventas_totales',
+                                                                          'venta_un':'venta_totales_un',
+                                                                          'cod_material':'num_materiales'})        
+       
+        ## ordenando las columnas
+        orden_columnas = ['marca','ventas_totales','venta_totales_un','prom_venta_cop','prom_venta_un','ventas_ultimo_mes',
+                          'margen_real','num_materiales','%_ventas','var_vs_mismo_mes_anterior','var_ultimo_mes','var_ultimo_trimestre',
+                          'var_vs_prom_semestre']
+        ventas_por_marca_sorted = ventas_por_marca_sorted[orden_columnas]
+        ventas_por_marca_sorted.set_index("marca",inplace=True)
+        formateado = ventas_por_marca_sorted.style.format({
+        'ventas_totales': lambda x: f"{x:,.0f}".replace(",", "."),
+        'venta_totales_un':lambda x: f"{x:,.0f}".replace(",", "."),
+        'prom_venta_cop':lambda x: f"{x:,.0f}".replace(",", "."),
+        'prom_venta_un':lambda x: f"{x:,.0f}".replace(",", "."),
+        'ventas_ultimo_mes': lambda x: f"{x:,.0f}".replace(",", "."),    
+        '%_ventas': '{:.1%}',   # Formato porcentaje con 2 decimales
+        'margen_real': '{:.1%}',
+        'var_ultimo_mes': '{:.1%}',  
+        'var_ultimo_trimestre': '{:.1%}',
+        'var_vs_prom_semestre':  '{:.1%}',  
+        'var_vs_mismo_mes_anterior': '{:.1%}'
+        })
+     
+        st.dataframe(formateado, use_container_width=True)
+       
+        st.write('Marcas que no se tendran en cuenta con ser consideradas atipicas.')
+        marge_bruto_ajus_marcas = marge_bruto_ajus_marcas.sort_values(by= 'margen_real')
+        st.markdown(f"Marcas consideras atípicas en sus margenes **{marcas_inciales.difference(marcas_resultantes)}**")
+        graph_bar_marca = creacion_graficos(marge_bruto_ajus_marcas, x_label='marca', y_label='margen_real', heu='marca',
+                               titulo = 'Margen por marca')
+        fig_marca = graph_bar_marca.create_bar_chart()
 
 
-        st.subheader("Resumen del margen negocio:")
-        st.dataframe(mg_sector.head(), use_container_width=True)
+        st.plotly_chart(fig_marca, use_container_width=True)
+        
+        # capturando las marcas unicas.
+        # marcas_disponibles  = ventas_por_marca_sorted['marca'].unique().tolist()
+        # marcas_seleccionadas = st.multiselect("Seleccione una o más marcas:", marcas_disponibles)
+           # Controlar el flujo basado en el estado actual
+     
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            boton_continuar_producto = st.button(
+            "CONTINUAR CON EL ANALISIS POR PRODUCTO",         
+            on_click=cambiar_a_analisis_producto)
+      
 
-    else:
-        st.warning("No se encontraron los archivos cargados.")
+def cambiar_a_analisis_producto():
+    """Función para cambiar directamente a la vista de análisis por producto"""
+    st.session_state.vista_actual = 'analisis_producto'
 
+def seleccionar_marcas_para_analisis():
+    
+    st.title("Analisis materiales...")
+    df_balance = st.session_state.df2_balance 
+    mg_sector = st.session_state.df_margen
+    mg_marca =  st.session_state.mg_marca
+    mg_material = st.session_state.mg_material
 
+  
+    marcas_disponibles = sorted(df_balance['marca'].dropna().unique())
+    marcas_seleccionadas = st.multiselect(
+    "Selecciona una o más marcas para filtrar:",
+    options=marcas_disponibles
+    )
+    variables_a_agrupar_variacion = ['cod_material','nombre_material','PLU','negocio','categoria','marca'] # SE UTILIZARA MAS ADELANTE
+    variables_numericas_ventas = {'venta_cop':'mean','venta_un':'mean'} # SE UTILIZARA MAS ADELANTE
+                           
+    ventas_material = create_grupped_df(df_balance,variables_a_agrupar_variacion,variables_numericas_ventas,agrupa=False,sort_values='venta_cop').reset_index()
+    ventas_material = pd.merge(ventas_material,mg_material[['cod_material','margen_real']], on= 'cod_material', how='left').merge(mg_marca[['marca','margen_real']], 
+                        on = 'marca', how = 'left',suffixes=('_material', '_marca'))
+    print(type(mg_sector))
+    #ventas_material = pd.merge(ventas_material,mg_sector, on ='negocio', how='left' )
+    del ventas_material['index']
+    ventas_material = ventas_material.sort_values(by =  ['marca', 'venta_cop'], ascending=False)
 
+    ventas_material.set_index(['cod_material','nombre_material'], inplace=True)
+    if st.button("Clic Marcas seleccionadas"):
+        if marcas_seleccionadas:
+            st.markdown(f"Marcas Selccionadas **{marcas_seleccionadas}** ")         
+            ventas_filtradas = ventas_material[ventas_material['marca'].isin(marcas_seleccionadas)]
+            ventas_filtradas['margen_real_material'] = (ventas_filtradas['margen_real_material']/100).round(3)
+            ventas_filtradas['margen_real_marca'] = (ventas_filtradas['margen_real_marca']/100).round(3)
+            
+            ventas_filtradas = ventas_filtradas.rename(columns={'venta_cop': 'venta_prom_cop',
+                                                                'venta_un':'venta_prom_un'}) 
+        
+            
+            formateado = ventas_filtradas.style.format({
+            'margen_real_material':'{:.1%}',
+            'margen_real_marca':'{:.1%}',
+            'venta_prom_cop':lambda x: f"{x:,.0f}".replace(",", "."),
+            'venta_prom_un':lambda x: f"{x:,.0f}".replace(",", ".")
+            })
+            st.dataframe(formateado, use_container_width=True)
+        else:
+            st.warning("No se seleccionaron marcas. Por favor selecciona al menos una marca para filtrar.")
+   
 def main():
     """Función principal que ejecuta la aplicación"""
     configurar_pagina()
     inicializar_estado()
     sidebar_carga_archivos()
-    contenido_principal()
+    if 'vista_actual' in st.session_state and st.session_state.vista_actual == 'analisis_producto':
+        st.success("¡AHORA PUEDES FILTRAR LAS MARCAS PARA REVISAR LOS MATERIALES POR MARCA!")
+        seleccionar_marcas_para_analisis()
+    else:
+        contenido_principal()
    
 
 if __name__ == "__main__":
